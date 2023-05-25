@@ -228,7 +228,7 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor, Exportable):
         rng=None,
         nb_augmentation_prob=0.0,
         nb_max_freq=4000,
-        use_torchaudio: bool = False,
+        use_torchaudio: bool = True,
         mel_norm="slaney",
         stft_exact_pad=False,  # Deprecated arguments; kept for config compatibility
         stft_conv=False,  # Deprecated arguments; kept for config compatibility
@@ -280,13 +280,13 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor, Exportable):
             stft_conv=stft_conv,  # Deprecated arguments; kept for config compatibility
         )
 
-    def input_example(self, max_batch: int = 8, max_dim: int = 32000, min_length: int = 200):
+    def input_example(self, max_batch: int = 128, max_dim: int = 48000, min_length: int = 8000):
         batch_size = torch.randint(low=1, high=max_batch, size=[1]).item()
         max_length = torch.randint(low=min_length, high=max_dim, size=[1]).item()
         signals = torch.rand(size=[batch_size, max_length]) * 2 - 1
         lengths = torch.randint(low=min_length, high=max_dim, size=[batch_size])
         lengths[0] = max_length
-        return signals, lengths
+        return signals.cuda(), lengths.cuda()
 
     def get_features(self, input_signal, length):
         return self.featurizer(input_signal, length)

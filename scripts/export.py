@@ -100,7 +100,7 @@ def nemo_export(argv):
     try:
         with torch.inference_mode():
             # Restore instance from .nemo file using generic model restore_from
-            model = ModelPT.restore_from(restore_path=nemo_in, trainer=trainer)
+            model = ModelPT.restore_from(restore_path=nemo_in, trainer=trainer, strict=False)
     except Exception as e:
         logging.error(
             "Failed to restore model from NeMo file : {}. Please make sure you have the latest NeMo package installed with [all] dependencies.".format(
