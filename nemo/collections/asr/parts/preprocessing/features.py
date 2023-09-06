@@ -623,7 +623,7 @@ class FilterbankFeaturesTA(nn.Module):
         guard_value = self._resolve_log_zero_guard_value(features.dtype)
         if self._normalize_strategy == "per_feature" or self._normalize_strategy == "all_features":
             # 'all_features' reduces over each sample; 'per_feature' reduces over each channel
-            reduce_dim = 2
+            reduce_dim = [2]
             if self._normalize_strategy == "all_features":
                 reduce_dim = [1, 2]
             # [B, D, T] -> [B, D, 1] or [B, 1, 1]

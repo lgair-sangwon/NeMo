@@ -223,12 +223,12 @@ class AudioToMelSpectrogramPreprocessor(AudioPreprocessor, Exportable):
         pad_to=16,
         frame_splicing=1,
         exact_pad=False,
-        pad_value=0,
+        pad_value: float = 0.0,
         mag_power=2.0,
         rng=None,
         nb_augmentation_prob=0.0,
         nb_max_freq=4000,
-        use_torchaudio: bool = False,
+        use_torchaudio: bool = True,
         mel_norm="slaney",
         stft_exact_pad=False,  # Deprecated arguments; kept for config compatibility
         stft_conv=False,  # Deprecated arguments; kept for config compatibility
