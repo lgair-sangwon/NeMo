@@ -955,6 +955,83 @@ def compute_max_steps(
     return math.ceil(steps_per_epoch / accumulate_grad_batches) * max_epochs
 
 
+class CosineDecayRestarts(optim.lr_scheduler.CosineAnnealingWarmRestarts):
+    def __init__(self, optimizer, T_0, T_mult=1, M_mult=1.0, eta_min=0, last_epoch=-1, verbose=False, **kwargs):
+        super().__init__(optimizer, T_0, T_mult, eta_min, last_epoch=last_epoch, verbose=verbose)
+        self.M_mult = M_mult
+
+    def step(self, epoch=None):
+        if epoch is None and self.last_epoch < 0:
+            epoch = 0
+
+        if epoch is None:
+            epoch = self.last_epoch + 1
+            self.T_cur = self.T_cur + 1
+            if self.T_cur >= self.T_i:
+                self.T_cur = self.T_cur - self.T_i
+                self.T_i = self.T_i * self.T_mult
+                self.base_lrs = [base_lr * self.M_mult for base_lr in self.base_lrs]
+        else:
+            if epoch < 0:
+                raise ValueError("Expected non-negative epoch, but got {}".format(epoch))
+            if epoch >= self.T_0:
+                if self.T_mult == 1:
+                    self.T_cur = epoch % self.T_0
+                else:
+                    n = int(math.log((epoch / self.T_0 * (self.T_mult - 1) + 1), self.T_mult))
+                    self.T_cur = epoch - self.T_0 * (self.T_mult ** n - 1) / (self.T_mult - 1)
+                    self.T_i = self.T_0 * self.T_mult ** (n)
+            else:
+                self.T_i = self.T_0
+                self.T_cur = epoch
+        self.last_epoch = math.floor(epoch)
+        self.step_num = self.last_epoch
+
+        class _enable_get_lr_call:
+            def __init__(self, o):
+                self.o = o
+
+            def __enter__(self):
+                self.o._get_lr_called_within_step = True
+                return self
+
+            def __exit__(self, type, value, traceback):
+                self.o._get_lr_called_within_step = False
+                return self
+
+        with _enable_get_lr_call(self):
+            for i, data in enumerate(zip(self.optimizer.param_groups, self.get_lr())):
+                param_group, lr = data
+                param_group["lr"] = lr
+                self.print_lr(self.verbose, i, lr, epoch)
+
+        self._last_lr = [group["lr"] for group in self.optimizer.param_groups]
+
+
+def CDR(
+    optimizer,
+    step_per_epoch: int,
+    first_cycle_epochs: int = 1,
+    cycle_mult: int = 1,
+    min_lr: float = 1e-6,
+    lr_decay: float = 1.0,
+    last_epoch=-1,
+    **kwargs,
+):
+    warmup = optim.lr_scheduler.LinearLR(optimizer, start_factor=1e-4, total_iters=step_per_epoch)
+    cdr = CosineDecayRestarts(
+        optimizer,
+        T_0=first_cycle_epochs * step_per_epoch,
+        T_mult=cycle_mult,
+        M_mult=lr_decay,
+        eta_min=min_lr,
+        last_epoch=last_epoch,
+    )
+    sche_fn = optim.lr_scheduler.SequentialLR(optimizer, [warmup, cdr], [step_per_epoch])
+
+    return sche_fn
+
+
 AVAILABLE_SCHEDULERS = {
     'WarmupPolicy': WarmupPolicy,
     'WarmupHoldPolicy': WarmupHoldPolicy,
@@ -972,6 +1049,7 @@ AVAILABLE_SCHEDULERS = {
     'ExponentialLR': pt_scheduler.ExponentialLR,
     'ReduceLROnPlateau': pt_scheduler.ReduceLROnPlateau,
     'CyclicLR': pt_scheduler.CyclicLR,
+    "CDR": CDR,
 }
 
 EPOCH_SCHEDULERS = {
