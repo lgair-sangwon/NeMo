@@ -36,7 +36,7 @@ def get_args(argv):
     parser.add_argument("--autocast", action="store_true", help="Use autocast when exporting")
     parser.add_argument("--runtime-check", action="store_true", help="Runtime check of exported net result")
     parser.add_argument("--verbose", default=None, help="Verbose level for logging, numeric")
-    parser.add_argument("--max-batch", type=int, default=8, help="Max batch size for model export")
+    parser.add_argument("--max-batch", type=int, default=256, help="Max batch size for model export")
     parser.add_argument("--max-dim", type=int, default=48000, help="Max dimension(s) for model export")
     parser.add_argument("--min-length", type=int, default=8000, help="Max dimension(s) for model export")
     parser.add_argument("--onnx-opset", type=int, default=None, help="ONNX opset for model export")
@@ -53,6 +53,7 @@ def get_args(argv):
         "(do not put spaces before or after the = sign). "
         "Note that values are always treated as strings.",
     )
+    parser.add_argument("--tensorrt", action="store_true", help="Use tensorrt runtime when exporting")
 
     args = parser.parse_args(argv)
     return args
@@ -162,6 +163,36 @@ def nemo_export(argv):
                 verbose=bool(args.verbose),
             )
 
+            traced_titanet = torch.jit.load(out)
+
+            if args.tensorrt:
+                import torch_tensorrt
+
+                trt_model = torch_tensorrt.compile(
+                    traced_titanet,
+                    inputs=[
+                        torch_tensorrt.Input(
+                            min_shape=(args.max_batch, 80, 50),
+                            opt_shape=(args.max_batch, 80, 200),
+                            max_shape=(args.max_batch, 80, 300),
+                            dtype=torch.float32,
+                        ),
+                        torch_tensorrt.Input(
+                            min_shape=(args.max_batch,),
+                            opt_shape=(args.max_batch,),
+                            max_shape=(args.max_batch,),
+                            dtype=torch.int32,
+                        ),
+                    ],
+                    enabled_precisions={torch.half},
+                )
+
+                benchmark(traced_titanet, input_shape=[(args.max_batch, 80, 300), (args.max_batch,)], nruns=100)
+                benchmark(
+                    trt_model, input_shape=[(args.max_batch, 80, 300), (args.max_batch,)], nruns=100, dtype="fp16"
+                )
+                traced_titanet = trt_model
+
             with torch.jit.optimized_execution(True), _jit_is_scripting():
                 input_example = model.preprocessor.input_example(**in_args)
                 input_example = [x.cuda() for x in input_example]
@@ -171,8 +202,6 @@ def nemo_export(argv):
                 scripted_preprocessor = torch.jit.script(preprocessor)
                 scripted_preprocessor.eval()
                 x = scripted_preprocessor(**input_example)
-
-                traced_titanet = torch.jit.load(out)
 
                 titanet_ = TitanetScriptable(scripted_preprocessor, traced_titanet)
                 titanet_script = torch.jit.script(titanet_)
@@ -199,6 +228,39 @@ class TitanetScriptable(torch.nn.Module):
         processed_signal, processed_signal_len = self.preprocessor(input_signal=input_signal, length=length,)
         logits, embs = self.traced_titanet(processed_signal, processed_signal_len)
         return logits, embs
+
+
+import time
+import numpy as np
+import torch.backends.cudnn as cudnn
+
+cudnn.benchmark = True
+
+
+def benchmark(model, input_shape=(1024, 3, 512, 512), dtype='fp32', nwarmup=50, nruns=1000):
+    input_data = torch.randn(input_shape)
+    input_data = input_data.to("cuda")
+    if dtype == 'fp16':
+        input_data = input_data.half()
+
+    print("Warm up ...")
+    with torch.no_grad():
+        for _ in range(nwarmup):
+            features = model(input_data)
+    torch.cuda.synchronize()
+    print("Start timing ...")
+    timings = []
+    with torch.no_grad():
+        for i in range(1, nruns + 1):
+            start_time = time.time()
+            pred_loc = model(input_data)
+            torch.cuda.synchronize()
+            end_time = time.time()
+            timings.append(end_time - start_time)
+            if i % 10 == 0:
+                print('Iteration %d/%d, avg batch time %.2f ms' % (i, nruns, np.mean(timings) * 1000))
+
+    print("Input shape:", input_data.size())
 
 
 if __name__ == '__main__':
