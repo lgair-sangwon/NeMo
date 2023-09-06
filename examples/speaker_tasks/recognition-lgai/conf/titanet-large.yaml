@@ -1,4 +1,4 @@
-name: &name "TitaNet-L"
+name: &name "LGAI-TitaNet-L"
 sample_rate: &sample_rate 16000
 
 model:
@@ -159,7 +159,7 @@ model:
 
 trainer:
   devices: -1 # number of gpus (original titanet-large was trained on 4 nodes with 8 gpus each)
-  max_epochs: 25
+  max_epochs: 50
   max_steps: -1 # computed at runtime if not set
   num_nodes: 1
   accelerator: gpu

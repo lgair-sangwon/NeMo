@@ -1,4 +1,4 @@
-name: &name "TitaNet-L"
+name: &name "LGAI-TitaNet-cdr/2023-09-04_04-43-52"
 sample_rate: &sample_rate 16000
 
 model:
@@ -185,3 +185,5 @@ exp_manager:
   checkpoint_callback_params:
     verbose: False
     save_top_k: -1
+  resume_if_exists: True
+  resume_from_checkpoint: nemo_experiments/LGAI-TitaNet-cdr/2023-09-04_04-43-52/checkpoints/TitaNet-L--val_loss=4.3512-epoch=3-last.ckpt
